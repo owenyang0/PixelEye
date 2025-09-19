@@ -172,7 +172,7 @@ export const CompareWindow: React.FC<CompareWindowProps> = ({
       {!isControlsVisible && (
         <button
           onClick={toggleControls}
-          className="fixed top-4 right-4 bg-black bg-opacity-20 text-white rounded-xl px-3 py-2 text-2xl leading-none font-medium hover:bg-opacity-90 z-50 transition-all"
+          className="fixed top-4 right-4 bg-black opacity-20 text-white rounded-xl px-3 py-2 text-2xl leading-none font-medium hover:opacity-90 z-50 transition-all"
           title="显示控制面板 (空格)"
         >
           ⚙
@@ -182,7 +182,7 @@ export const CompareWindow: React.FC<CompareWindowProps> = ({
       {/* 返回按钮 */}
       <button
         onClick={onClose}
-        className="fixed top-4 left-4 bg-black bg-opacity-20 text-white rounded-xl px-3 py-2 text-2xl leading-none font-medium hover:bg-opacity-90 z-50 transition-all"
+        className="fixed top-4 left-4 bg-black opacity-20 text-white rounded-xl px-3 py-2 text-2xl leading-none font-medium hover:opacity-90 z-50 transition-all"
         title="返回主页面 (Esc)"
       >
         ←
