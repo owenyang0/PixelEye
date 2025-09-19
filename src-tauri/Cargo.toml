@@ -1,5 +1,5 @@
 [package]
-name = "pixels"
+name = "Pixels像素级对比工具"
 version = "0.1.0"
 description = "Pixels! 专业的像素级设计稿对比工具，支持透明覆盖、实时调节，让设计还原更精确"
 authors = ["yangsong13"]
