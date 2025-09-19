@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "pixels",
+  "productName": "Pixels像素级对比工具",
   "version": "0.1.0",
   "identifier": "com.song.pixels",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Pixels - 设计稿对比工具",
+        "title": "Pixels - 像素级对比工具",
         "width": 1020,
         "minWidth": 400,
         "height": 940,
@@ -40,6 +40,7 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "publisher": "yangsong13"
   }
 }

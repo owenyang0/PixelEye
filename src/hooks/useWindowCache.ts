@@ -62,14 +62,12 @@ export const useWindowCache = () => {
           width: cachedCompareSize.width,
           height: cachedCompareSize.height
         });
-        console.log('使用缓存的对比窗口尺寸:', cachedCompareSize);
       } else {
         // 首次使用，设置默认宽度750px
         await invoke('set_window_size', {
           width: 750,
           height: currentHeight
         });
-        console.log('首次使用对比窗口，设置默认宽度750px');
       }
       
       return true;
@@ -92,7 +90,6 @@ export const useWindowCache = () => {
           width: mainWindowSize.width,
           height: mainWindowSize.height
         });
-        console.log('恢复主窗口尺寸:', mainWindowSize);
       }
       
       return true;
