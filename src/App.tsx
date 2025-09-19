@@ -1,15 +1,18 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { readFile } from '@tauri-apps/plugin-fs';
+import { readFile, exists } from '@tauri-apps/plugin-fs';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import CompareWindow from './CompareWindow';
 import { useWindowCache } from './hooks/useWindowCache';
+import { storageService, STORAGE_KEYS } from './utils/StorageService';
+import { isTauriEnvironment } from './utils/environmentUtils';
 import './App.css';
 
 interface ImageData {
   name: string;
   url: string;
   file: Uint8Array;
+  path?: string; // 可选的文件路径
 }
 
 // 支持的图片格式
@@ -27,22 +30,58 @@ function App() {
   const { enterCompareMode, exitCompareMode } = useWindowCache();
 
   // 创建图片数据对象
-  const createImageData = (name: string, fileData: Uint8Array): ImageData => {
+  const createImageData = (name: string, fileData: Uint8Array, path?: string): ImageData => {
     const blob = new Blob([fileData]);
     const url = URL.createObjectURL(blob);
 
     return {
       name,
       url,
-      file: fileData
+      file: fileData,
+      path
     };
   };
 
+  // 保存当前选择的图片（仅在 Tauri 中缓存路径）
+  const saveSelectedImage = useCallback(async (image: ImageData | null) => {
+    setSelectedImage(image);
+
+    if (!isTauriEnvironment) return;
+
+    if (image?.path) {
+      await storageService.set(STORAGE_KEYS.LAST_IMAGE_PATH, image.path);
+    } else {
+      await storageService.remove(STORAGE_KEYS.LAST_IMAGE_PATH);
+    }
+  }, []);
+
+  // 加载上次使用的图片（仅通过路径）
+  const loadLastImage = useCallback(async () => {
+    if (!isTauriEnvironment) return;
+
+    try {
+      const lastImagePath = await storageService.get<string>(STORAGE_KEYS.LAST_IMAGE_PATH);
+      if (!lastImagePath) return;
+
+      const fileExists = await exists(lastImagePath);
+      if (!fileExists) return;
+
+      const fileData = await readFile(lastImagePath);
+      const fileName = lastImagePath.split('/').pop() || 'unknown';
+      setSelectedImage(createImageData(fileName, fileData, lastImagePath));
+    } catch (error) {
+      console.error('加载上次使用的图片失败:', error);
+    }
+  }, []);
+
+  // 应用启动时加载上次使用的图片
+  useEffect(() => {
+    loadLastImage();
+  }, [loadLastImage]);
+
   // 监听 Tauri v2 文件拖拽事件
   useEffect(() => {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI__;
-    
-    if (isTauri) {
+    if (isTauriEnvironment) {
       let unlisten: (() => void) | undefined;
 
       const setupDragDropListener = async () => {
@@ -96,19 +135,19 @@ function App() {
       const fileData = await readFile(filePath);
       const fileName = filePath.split('/').pop() || 'unknown';
       
-      setSelectedImage(createImageData(fileName, fileData));
+      await saveSelectedImage(createImageData(fileName, fileData, filePath));
       setIsDragging(false);
     } catch (error) {
       console.error('处理 Tauri 文件拖拽失败:', error);
       setIsDragging(false);
     }
-  }, []);
+  }, [saveSelectedImage]);
 
   // 处理文件选择 - 使用HTML input作为备选方案
   const handleFileSelect = useCallback(async () => {
     try {
       // 尝试使用Tauri对话框
-      if (typeof window !== 'undefined' && window.__TAURI__) {
+      if (isTauriEnvironment) {
         const file = await open({
           title: '选择设计稿图片',
           multiple: false,
@@ -123,7 +162,7 @@ function App() {
         if (file) {
           const fileData = await readFile(file);
           const fileName = file.split('/').pop() || 'unknown';
-          setSelectedImage(createImageData(fileName, fileData));
+          await saveSelectedImage(createImageData(fileName, fileData, file));
         }
       } else {
         // 备选方案：使用HTML文件输入
@@ -134,17 +173,17 @@ function App() {
       // 回退到HTML文件输入
       fileInputRef.current?.click();
     }
-  }, []);
+  }, [saveSelectedImage]);
 
   // 处理HTML文件输入
   const handleFileInputChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      setSelectedImage(createImageData(file.name, uint8Array));
-    }
-  }, []);
+    if (!file || !file.type.startsWith('image/')) return;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    await saveSelectedImage(createImageData(file.name, uint8Array));
+  }, [saveSelectedImage]);
 
   // 处理拖拽
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -162,39 +201,24 @@ function App() {
     setIsDragging(false);
 
     try {
-      // 检查是否有文件
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        const files = Array.from(e.dataTransfer.files);
-        const imageFile = files.find(file => file.type.startsWith('image/'));
+      const files = e.dataTransfer.files && e.dataTransfer.files.length > 0
+        ? Array.from(e.dataTransfer.files)
+        : e.dataTransfer.items && e.dataTransfer.items.length > 0
+          ? Array.from(e.dataTransfer.items)
+              .filter((item) => item.kind === 'file')
+              .map((item) => item.getAsFile()!)
+          : [];
 
-        if (imageFile) {
-          const arrayBuffer = await imageFile.arrayBuffer();
-          const uint8Array = new Uint8Array(arrayBuffer);
-          setSelectedImage(createImageData(imageFile.name, uint8Array));
-          return;
-        }
-      }
+      const imageFile = files.find((f): f is File => !!f && 'type' in f && f.type.startsWith('image/'));
+      if (!imageFile) return;
 
-      // 尝试从 dataTransfer.items 获取文件
-      if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
-        const items = Array.from(e.dataTransfer.items);
-        for (const item of items) {
-          if (item.kind === 'file') {
-            const file = item.getAsFile();
-            if (file && file.type.startsWith('image/')) {
-              const arrayBuffer = await file.arrayBuffer();
-              const uint8Array = new Uint8Array(arrayBuffer);
-              setSelectedImage(createImageData(file.name, uint8Array));
-              return;
-            }
-          }
-        }
-      }
+      const buffer = await imageFile.arrayBuffer();
+      await saveSelectedImage(createImageData(imageFile.name, new Uint8Array(buffer)));
     } catch (error) {
       console.error('拖拽文件处理失败:', error);
       alert('拖拽文件失败，请使用"选择文件"按钮');
     }
-  }, []);
+  }, [saveSelectedImage]);
 
   // 进入对比模式
   const handleEnterCompareMode = useCallback(async () => {
@@ -260,7 +284,7 @@ function App() {
           {Math.round(opacity * 100)}%
         </div>
         <button
-          onClick={() => setSelectedImage(null)}
+          onClick={() => saveSelectedImage(null)}
           className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
           title="重新选择图片"
         >
@@ -313,6 +337,12 @@ function App() {
             <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
             <span>对比模式中：<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">空格</kbd> 切换面板，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">↑↓</kbd> 调透明度，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">Esc</kbd> 退出</span>
           </div>
+          {isTauriEnvironment && (
+            <div className="flex items-center">
+              <span className="w-2 h-2 bg-green-500 rounded-full mr-3"></span>
+              <span>桌面版特性：上次使用的图片将自动保存并在下次启动时恢复</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

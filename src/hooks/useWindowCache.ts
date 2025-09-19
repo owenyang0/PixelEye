@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { LazyStore } from '@tauri-apps/plugin-store';
+import { storageService, STORAGE_KEYS } from '../utils/StorageService';
 
 interface WindowSize {
   width: number;
@@ -17,73 +17,6 @@ interface WindowState {
   position: WindowPosition;
 }
 
-// 检测是否在Tauri环境中运行
-const isTauriEnvironment = typeof window !== 'undefined' && window.__TAURI__ !== undefined;
-
-// 创建存储服务类
-class StorageService {
-  private store: LazyStore | null = null;
-  private initialized = false;
-
-  constructor() {
-    if (isTauriEnvironment) {
-      this.initTauriStore();
-    }
-  }
-
-  private async initTauriStore(): Promise<void> {
-    try {
-      this.store = new LazyStore('pixels-config.json');
-      this.initialized = true;
-    } catch (error) {
-      console.error('初始化Tauri Store失败:', error);
-    }
-  }
-
-  async get<T>(key: string): Promise<T | null> {
-    if (isTauriEnvironment && !this.initialized) {
-      await this.initTauriStore();
-    }
-
-    try {
-      if (isTauriEnvironment && this.store) {
-        // 使用Tauri Store
-        const value = await this.store.get(key);
-        return value as T || null;
-      } else {
-        // 使用localStorage
-        const value = localStorage.getItem(key);
-        return value ? JSON.parse(value) : null;
-      }
-    } catch (error) {
-      console.error(`获取${key}失败:`, error);
-      return null;
-    }
-  }
-
-  async set<T>(key: string, value: T): Promise<void> {
-    if (isTauriEnvironment && !this.initialized) {
-      await this.initTauriStore();
-    }
-
-    try {
-      if (isTauriEnvironment && this.store) {
-        // 使用Tauri Store
-        await this.store.set(key, value);
-        await this.store.save();
-      } else {
-        // 使用localStorage
-        localStorage.setItem(key, JSON.stringify(value));
-      }
-    } catch (error) {
-      console.error(`保存${key}失败:`, error);
-    }
-  }
-}
-
-// 创建存储服务实例
-const storageService = new StorageService();
-
 // 窗口缓存Hook
 export const useWindowCache = () => {
   const [mainWindowState, setMainWindowState] = useState<WindowState | null>(null);
@@ -91,15 +24,13 @@ export const useWindowCache = () => {
   // 缓存管理函数
   const saveMainWindowState = useCallback(async (state: WindowState) => {
     setMainWindowState(state);
-    await storageService.set('pixels_main_window_state', state);
+    await storageService.set(STORAGE_KEYS.MAIN_WINDOW_STATE, state);
   }, []);
 
   const loadMainWindowState = useCallback(async () => {
     try {
-      const state = await storageService.get<WindowState>('pixels_main_window_state');
+      const state = await storageService.get<WindowState>(STORAGE_KEYS.MAIN_WINDOW_STATE);
       if (state) {
-        console.log('loadMainWindowState state', state);
-
         setMainWindowState(state);
         return state;
       }
@@ -110,12 +41,12 @@ export const useWindowCache = () => {
   }, []);
 
   const saveCompareWindowState = useCallback(async (state: WindowState) => {
-    await storageService.set('pixels_compare_window_state', state);
+    await storageService.set(STORAGE_KEYS.COMPARE_WINDOW_STATE, state);
   }, []);
 
   const loadCompareWindowState = useCallback(async () => {
     try {
-      const state = await storageService.get<WindowState>('pixels_compare_window_state');
+      const state = await storageService.get<WindowState>(STORAGE_KEYS.COMPARE_WINDOW_STATE);
       return state || null;
     } catch (error) {
       console.error('加载对比窗口状态失败:', error);
@@ -200,13 +131,10 @@ export const useWindowCache = () => {
   useEffect(() => {
     const initializeState = async () => {
       await loadMainWindowState();
-      await loadCompareWindowState();
+    };
 
-
-      initializeState();
-
-    }
-  }, [loadMainWindowState, loadCompareWindowState]);
+    initializeState();
+  }, [loadMainWindowState]);
 
   return {
     mainWindowState,
