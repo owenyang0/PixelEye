@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "Pixels - 设计稿对比工具",
-        "width": 1000,
-        "height": 700,
+        "width": 1020,
+        "minWidth": 400,
+        "height": 940,
+        "minHeight": 300,
         "resizable": true,
         "alwaysOnTop": false,
         "decorations": true,

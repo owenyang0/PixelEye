@@ -2,8 +2,8 @@ import React, { useState, useCallback, useRef } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import CompareWindow from './CompareWindow';
+import { useWindowCache } from './hooks/useWindowCache';
 import './App.css';
-import { invoke } from '@tauri-apps/api/core';
 
 interface ImageData {
   name: string;
@@ -17,6 +17,9 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 使用窗口缓存 Hook
+  const { enterCompareMode, exitCompareMode } = useWindowCache();
 
   // 处理文件选择 - 使用HTML input作为备选方案
   const handleFileSelect = useCallback(async () => {
@@ -107,24 +110,20 @@ function App() {
   }, []);
 
   // 进入对比模式
-  const enterCompareMode = useCallback(async () => {
+  const handleEnterCompareMode = useCallback(async () => {
     if (selectedImage) {
-      const [width, height] = await invoke('get_window_size') as [number, number];
-      console.log('width', width);
-      console.log('height', height);
-
-      invoke('set_window_size', {
-        width: 750,
-        height: height
-      });
-      setIsCompareMode(true);
+      const success = await enterCompareMode();
+      if (success) {
+        setIsCompareMode(true);
+      }
     }
-  }, [selectedImage]);
+  }, [selectedImage, enterCompareMode]);
 
   // 退出对比模式
-  const exitCompareMode = useCallback(async () => {
+  const handleExitCompareMode = useCallback(async () => {
+    await exitCompareMode();
     setIsCompareMode(false);
-  }, []);
+  }, [exitCompareMode]);
 
   return (
     <>
@@ -135,7 +134,7 @@ function App() {
           imageName={selectedImage.name}
           opacity={opacity}
           onOpacityChange={setOpacity}
-          onClose={exitCompareMode}
+          onClose={handleExitCompareMode}
         />
       )}
 
@@ -232,7 +231,7 @@ function App() {
                         {/* 进入对比模式 */}
                         <div className="space-y-3 max-w-sm">
                           <button
-                            onClick={enterCompareMode}
+                            onClick={handleEnterCompareMode}
                             className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
                           >
                             <span className="flex items-center justify-center">
