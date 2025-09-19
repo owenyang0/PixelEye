@@ -1,12 +1,9 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-
-// 扩展 Window 接口以包含 Tauri 属性
-declare global {
-  interface Window {
-    __TAURI__?: any;
-  }
-}
+import React, { useCallback } from 'react';
+import { useWindowManager } from './hooks/useWindowManager';
+import { useImageLoader } from './hooks/useImageLoader';
+import { useControlPanel } from './hooks/useControlPanel';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useTransparentMode } from './hooks/useTransparentMode';
 
 interface CompareWindowProps {
   imageUrl: string;
@@ -23,161 +20,20 @@ export const CompareWindow: React.FC<CompareWindowProps> = ({
   onOpacityChange,
   onClose
 }) => {
-  const [isControlsVisible, setIsControlsVisible] = useState(true);
-  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-  const [windowSize, setWindowSize] = useState({ width: 0, height: 0 });
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
-  const [isInvertMode, setIsInvertMode] = useState(false);
-
-  // 检查 Tauri 环境
-  const isTauri = typeof window !== 'undefined' && window.__TAURI__;
-
-  // 窗口尺寸监听 - 使用Tauri API获取真实窗口尺寸
-  useEffect(() => {
-    const updateWindowSize = async () => {
-      try {
-        if (isTauri) {
-          const result = await invoke('get_window_size') as [number, number];
-          const [width, height] = result;
-          setWindowSize({ width, height });
-        } else {
-          // 降级到浏览器API
-          setWindowSize({
-            width: window.innerWidth,
-            height: window.innerHeight
-          });
-        }
-      } catch (error) {
-        console.error('获取窗口尺寸失败:', error);
-        // 降级到浏览器API
-        setWindowSize({
-          width: window.innerWidth,
-          height: window.innerHeight
-        });
-      }
-    };
-
-    // 初始化窗口尺寸
-    updateWindowSize();
-
-    // 监听窗口尺寸变化
-    window.addEventListener('resize', updateWindowSize);
-
-
-    return () => {
-      window.removeEventListener('resize', updateWindowSize);
-    };
-  }, [isTauri]);
-
-  useEffect(() => {
-    // 如果没有图片URL，直接返回
-    if (!imageUrl) {
-      return;
-    }
-
-    const img = new Image();
-    img.onload = async () => {
-      const naturalWidth = img.naturalWidth;
-      const naturalHeight = img.naturalHeight;
-
-      setImageSize({
-        width: naturalWidth,
-        height: naturalHeight
-      });
-
-      setIsInitialized(true);
-    };
-    img.src = imageUrl;
-  }, [imageUrl, isTauri]);
-
-  // 设置窗口为置顶并确保透明
-  useEffect(() => {
-
-    // 添加透明模式CSS类
-    document.documentElement.classList.add('compare-mode');
-    document.body.classList.add('compare-mode');
-    const root = document.getElementById('root');
-    if (root) {
-      root.classList.add('compare-mode');
-    }
-
-
-    // 清理函数
-    return () => {
-      document.documentElement.classList.remove('compare-mode');
-      document.body.classList.remove('compare-mode');
-      if (root) {
-        root.classList.remove('compare-mode');
-      }
-    };
-  }, []);
-
-  // 切换控制面板显示
-  const toggleControls = useCallback(() => {
-    setIsControlsVisible(!isControlsVisible);
-  }, [isControlsVisible]);
+  // 使用自定义 Hooks
+  const { windowSize, alwaysOnTop, toggleAlwaysOnTop } = useWindowManager();
+  const { imageSize, isInitialized } = useImageLoader(imageUrl);
+  const { isControlsVisible, isInvertMode, toggleControls, toggleInvertMode } = useControlPanel();
+  
+  // 设置透明模式和键盘快捷键
+  useTransparentMode();
+  useKeyboardShortcuts({ opacity, onOpacityChange, onClose, toggleControls });
 
   // 透明度调节
   const handleOpacityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const newOpacity = parseFloat(e.target.value);
     onOpacityChange(newOpacity);
   }, [onOpacityChange]);
-
-  // 键盘快捷键
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'Escape':
-          onClose();
-          break;
-        case ' ':
-          e.preventDefault();
-          toggleControls();
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          onOpacityChange(Math.min(1, opacity + 0.1));
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          onOpacityChange(Math.max(0, opacity - 0.1));
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [opacity, onOpacityChange, onClose, toggleControls]);
-
-  // 窗口置顶切换
-  const handleAlwaysOnTopToggle = useCallback(async () => {
-    try {
-      const newValue = !alwaysOnTop;
-      if (isTauri) {
-        await invoke('set_always_on_top', { alwaysOnTop: newValue });
-      }
-      setAlwaysOnTop(newValue);
-    } catch (error) {
-      console.error('设置窗口置顶失败:', error);
-    }
-  }, [alwaysOnTop, isTauri]);
-
-  // 反色模式切换
-  const handleInvertModeToggle = useCallback(() => {
-    setIsInvertMode(!isInvertMode);
-  }, [isInvertMode]);
-
-  // 自动隐藏控制面板 - 5秒后自动隐藏
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsControlsVisible(false);
-    }, 5000); // 5秒
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []); // 只在组件挂载时执行一次
 
   return (
     <div className="w-full h-screen relative" style={{ background: 'transparent' }}>
@@ -244,7 +100,7 @@ export const CompareWindow: React.FC<CompareWindowProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-300">窗口置顶</span>
                 <button
-                  onClick={handleAlwaysOnTopToggle}
+                  onClick={toggleAlwaysOnTop}
                   className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${alwaysOnTop ? 'bg-blue-600' : 'bg-gray-500'
                     }`}
                 >
@@ -264,7 +120,7 @@ export const CompareWindow: React.FC<CompareWindowProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-300">反色模式</span>
                 <button
-                  onClick={handleInvertModeToggle}
+                  onClick={toggleInvertMode}
                   className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isInvertMode ? 'bg-purple-600' : 'bg-gray-500'
                     }`}
                 >
