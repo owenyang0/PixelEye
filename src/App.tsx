@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import CompareWindow from './CompareWindow';
 import { useWindowCache } from './hooks/useWindowCache';
 import './App.css';
@@ -11,6 +12,10 @@ interface ImageData {
   file: Uint8Array;
 }
 
+// 支持的图片格式
+const SUPPORTED_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'];
+const IMAGE_REGEX = /\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i;
+
 function App() {
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
   const [opacity, setOpacity] = useState(0.7);
@@ -20,6 +25,84 @@ function App() {
 
   // 使用窗口缓存 Hook
   const { enterCompareMode, exitCompareMode } = useWindowCache();
+
+  // 创建图片数据对象
+  const createImageData = (name: string, fileData: Uint8Array): ImageData => {
+    const blob = new Blob([fileData]);
+    const url = URL.createObjectURL(blob);
+
+    return {
+      name,
+      url,
+      file: fileData
+    };
+  };
+
+  // 监听 Tauri v2 文件拖拽事件
+  useEffect(() => {
+    const isTauri = typeof window !== 'undefined' && window.__TAURI__;
+    
+    if (isTauri) {
+      let unlisten: (() => void) | undefined;
+
+      const setupDragDropListener = async () => {
+        try {
+          const webview = getCurrentWebview();
+          
+          // 监听拖拽事件
+          unlisten = await webview.onDragDropEvent((event) => {
+            const dragData = event.payload;
+            
+            switch (dragData.type) {
+              case 'enter':
+              case 'over':
+                setIsDragging(true);
+                break;
+                
+              case 'drop':
+                setIsDragging(false);
+                
+                const paths = (dragData as any).paths;
+                if (paths && paths.length > 0) {
+                  const imageFile = paths.find((file: string) => IMAGE_REGEX.test(file));
+                  
+                  if (imageFile) {
+                    handleTauriFileDrop(imageFile);
+                  }
+                }
+                break;
+                
+              case 'leave':
+                setIsDragging(false);
+                break;
+            }
+          });
+        } catch (error) {
+          console.error('设置 Tauri v2 拖拽事件监听器失败:', error);
+        }
+      };
+
+      setupDragDropListener();
+
+      return () => {
+        unlisten?.();
+      };
+    }
+  }, []);
+
+  // 处理 Tauri 文件拖拽
+  const handleTauriFileDrop = useCallback(async (filePath: string) => {
+    try {
+      const fileData = await readFile(filePath);
+      const fileName = filePath.split('/').pop() || 'unknown';
+      
+      setSelectedImage(createImageData(fileName, fileData));
+      setIsDragging(false);
+    } catch (error) {
+      console.error('处理 Tauri 文件拖拽失败:', error);
+      setIsDragging(false);
+    }
+  }, []);
 
   // 处理文件选择 - 使用HTML input作为备选方案
   const handleFileSelect = useCallback(async () => {
@@ -32,21 +115,15 @@ function App() {
           filters: [
             {
               name: 'Images',
-              extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg']
+              extensions: SUPPORTED_IMAGE_EXTENSIONS
             }
           ]
         });
 
         if (file) {
           const fileData = await readFile(file);
-          const blob = new Blob([fileData]);
-          const url = URL.createObjectURL(blob);
-
-          setSelectedImage({
-            name: file.split('/').pop() || 'unknown',
-            url,
-            file: fileData
-          });
+          const fileName = file.split('/').pop() || 'unknown';
+          setSelectedImage(createImageData(fileName, fileData));
         }
       } else {
         // 备选方案：使用HTML文件输入
@@ -65,13 +142,7 @@ function App() {
     if (file && file.type.startsWith('image/')) {
       const arrayBuffer = await file.arrayBuffer();
       const uint8Array = new Uint8Array(arrayBuffer);
-      const url = URL.createObjectURL(file);
-
-      setSelectedImage({
-        name: file.name,
-        url,
-        file: uint8Array
-      });
+      setSelectedImage(createImageData(file.name, uint8Array));
     }
   }, []);
 
@@ -90,22 +161,38 @@ function App() {
     e.preventDefault();
     setIsDragging(false);
 
-    const files = Array.from(e.dataTransfer.files);
-    const imageFile = files.find(file =>
-      file.type.startsWith('image/')
-    );
+    try {
+      // 检查是否有文件
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const files = Array.from(e.dataTransfer.files);
+        const imageFile = files.find(file => file.type.startsWith('image/'));
 
-    if (imageFile) {
-      const arrayBuffer = await imageFile.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      const blob = new Blob([uint8Array], { type: imageFile.type });
-      const url = URL.createObjectURL(blob);
+        if (imageFile) {
+          const arrayBuffer = await imageFile.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          setSelectedImage(createImageData(imageFile.name, uint8Array));
+          return;
+        }
+      }
 
-      setSelectedImage({
-        name: imageFile.name,
-        url,
-        file: uint8Array
-      });
+      // 尝试从 dataTransfer.items 获取文件
+      if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+        const items = Array.from(e.dataTransfer.items);
+        for (const item of items) {
+          if (item.kind === 'file') {
+            const file = item.getAsFile();
+            if (file && file.type.startsWith('image/')) {
+              const arrayBuffer = await file.arrayBuffer();
+              const uint8Array = new Uint8Array(arrayBuffer);
+              setSelectedImage(createImageData(file.name, uint8Array));
+              return;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('拖拽文件处理失败:', error);
+      alert('拖拽文件失败，请使用"选择文件"按钮');
     }
   }, []);
 
@@ -124,6 +211,112 @@ function App() {
     await exitCompareMode();
     setIsCompareMode(false);
   }, [exitCompareMode]);
+
+  // 渲染文件选择区域
+  const renderFileSelector = () => (
+    <div
+      className={`relative rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 border-2 border-dashed ${
+        isDragging
+          ? 'border-blue-400 bg-blue-50 scale-105'
+          : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onClick={handleFileSelect}
+    >
+      <div className="space-y-6">
+        <div className="text-6xl">
+          {isDragging ? '📥' : '🖼️'}
+        </div>
+        <div>
+          <p className="text-xl font-medium text-gray-700 mb-2">
+            {isDragging ? '放开以导入图片' : '点击选择或拖拽图片到此处'}
+          </p>
+          <p className="text-gray-500">
+            支持 PNG, JPG, JPEG, GIF, BMP, WebP, SVG
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // 渲染图片预览区域
+  const renderImagePreview = () => (
+    <div className="space-y-6">
+      {/* 图片显示 */}
+      <div className="group relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
+        <div className="flex items-center justify-center max-h-80">
+          <img
+            src={selectedImage!.url}
+            alt={selectedImage!.name}
+            style={{ opacity }}
+            className="object-contain transition-opacity duration-300"
+          />
+        </div>
+
+        {/* 透明度指示器 */}
+        <div title="透明度" className="absolute top-4 left-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium">
+          {Math.round(opacity * 100)}%
+        </div>
+        <button
+          onClick={() => setSelectedImage(null)}
+          className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
+          title="重新选择图片"
+        >
+          ✗
+        </button>
+      </div>
+
+      {/* 控制面板 */}
+      <div className="flex justify-center p-6 bg-gray-50 rounded-xl">
+        <div className="space-y-3 max-w-sm">
+          <button
+            onClick={handleEnterCompareMode}
+            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+          >
+            <span className="flex items-center justify-center">
+              <span className="text-xl mr-3">🎯</span>
+              进入对比模式
+            </span>
+          </button>
+          <p className="text-xs text-gray-500 text-center">
+            将以透明窗口覆盖进行像素级对比
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
+  // 渲染使用说明
+  const renderInstructions = () => (
+    <div className="mt-8 max-w-4xl mx-auto">
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+        <div className="flex items-center mb-4">
+          <span className="text-2xl mr-3">💡</span>
+          <h3 className="text-lg font-semibold text-gray-800">快速上手</h3>
+        </div>
+        <div className="space-y-3 text-sm text-gray-600">
+          <div className="flex items-center">
+            <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>拖拽图片到上方区域，或点击选择文件</span>
+          </div>
+          <div className="flex items-center">
+            <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>调整透明度和窗口置顶设置</span>
+          </div>
+          <div className="flex items-center">
+            <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>点击"进入对比模式"开始像素级对比</span>
+          </div>
+          <div className="flex items-center">
+            <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
+            <span>对比模式中：<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">空格</kbd> 切换面板，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">↑↓</kbd> 调透明度，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">Esc</kbd> 退出</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -173,127 +366,12 @@ function App() {
                     <h2 className="text-2xl font-bold text-gray-800">设计稿对比</h2>
                   </div>
 
-                  {!selectedImage ? (
-                    /* 文件选择区域 */
-                    <div
-                      className={`relative rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 border-2 border-dashed ${isDragging
-                        ? 'border-blue-400 bg-blue-50 scale-105'
-                        : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-                        }`}
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      onClick={handleFileSelect}
-                    >
-                      <div className="space-y-6">
-                        <div className="text-6xl">
-                          {isDragging ? '📥' : '🖼️'}
-                        </div>
-                        <div>
-                          <p className="text-xl font-medium text-gray-700 mb-2">
-                            {isDragging ? '放开以导入图片' : '点击选择或拖拽图片到此处'}
-                          </p>
-                          <p className="text-gray-500">
-                            支持 PNG, JPG, JPEG, GIF, BMP, WebP, SVG
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    /* 图片预览区域 */
-                    <div className="space-y-6">
-                      {/* 图片显示 */}
-                      <div className="group relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-                        <div className="flex items-center justify-center max-h-80">
-                          <img
-                            src={selectedImage.url}
-                            alt={selectedImage.name}
-                            style={{ opacity }}
-                            className="object-contain transition-opacity duration-300"
-                          />
-                        </div>
-
-                        {/* 透明度指示器 */}
-                        <div title="透明度" className="absolute top-4 left-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium">
-                          {Math.round(opacity * 100)}%
-                        </div>
-                        <button
-                          onClick={() => setSelectedImage(null)}
-                          className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
-                          title="重新选择图片"
-                        >
-                          ✗
-                        </button>
-                      </div>
-
-                      {/* 控制面板 */}
-                      <div className="flex justify-center p-6 bg-gray-50 rounded-xl">
-                        {/* 进入对比模式 */}
-                        <div className="space-y-3 max-w-sm">
-                          <button
-                            onClick={handleEnterCompareMode}
-                            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
-                          >
-                            <span className="flex items-center justify-center">
-                              <span className="text-xl mr-3">🎯</span>
-                              进入对比模式
-                            </span>
-                          </button>
-                          <p className="text-xs text-gray-500 text-center">
-                            将以透明窗口覆盖进行像素级对比
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* 图片信息 */}
-                      {/* <div className="flex items-center justify-between p-4 bg-green-50 border border-green-200 rounded-xl">
-                        <div className="flex items-center">
-                          <span className="text-green-500 mr-2">✅</span>
-                          <p className="text-green-800 font-medium">
-                            已选择: {selectedImage.name}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => setSelectedImage(null)}
-                          className="text-gray-400 hover:text-gray-600 transition-colors"
-                          title="重新选择图片"
-                        >
-                          ✕
-                        </button>
-                      </div> */}
-                    </div>
-                  )}
+                  {!selectedImage ? renderFileSelector() : renderImagePreview()}
                 </div>
               </div>
             </div>
 
-            {/* 使用说明 */}
-            <div className="mt-8 max-w-4xl mx-auto">
-              <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-                <div className="flex items-center mb-4">
-                  <span className="text-2xl mr-3">💡</span>
-                  <h3 className="text-lg font-semibold text-gray-800">快速上手</h3>
-                </div>
-                <div className="space-y-3 text-sm text-gray-600">
-                  <div className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
-                    <span>拖拽图片到上方区域，或点击选择文件</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
-                    <span>调整透明度和窗口置顶设置</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
-                    <span>点击"进入对比模式"开始像素级对比</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full mr-3"></span>
-                    <span>对比模式中：<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">空格</kbd> 切换面板，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">↑↓</kbd> 调透明度，<kbd className="bg-gray-100 px-1 py-0.5 rounded text-xs mx-1">Esc</kbd> 退出</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {renderInstructions()}
           </div>
         </div>
       )}

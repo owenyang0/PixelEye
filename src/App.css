@@ -5,6 +5,11 @@ body, html, #root {
   background: #f3f4f6;
 }
 
+/* 防止浏览器默认的拖拽打开文件行为，确保前端能接管 drop 事件 */
+html, body {
+  -webkit-user-drag: none;
+}
+
 /* 对比模式下的透明背景 */
 body.compare-mode, 
 html.compare-mode, 
