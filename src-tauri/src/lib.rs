@@ -34,6 +34,20 @@ async fn set_window_size(window: Window, width: u32, height: u32) -> Result<(), 
     window.set_size(size).map_err(|e| e.to_string())
 }
 
+// 设置窗口位置
+#[tauri::command]
+async fn set_window_position(window: Window, x: i32, y: i32) -> Result<(), String> {
+    let position = tauri::Position::Physical(tauri::PhysicalPosition { x, y });
+    window.set_position(position).map_err(|e| e.to_string())
+}
+
+// 获取窗口位置
+#[tauri::command]
+async fn get_window_position(window: Window) -> Result<(i32, i32), String> {
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    Ok((position.x, position.y))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -45,7 +59,9 @@ pub fn run() {
             set_window_transparent,
             get_window_opacity,
             get_window_size,
-            set_window_size
+            set_window_size,
+            set_window_position,
+            get_window_position
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
