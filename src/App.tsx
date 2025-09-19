@@ -17,7 +17,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   // 使用窗口缓存 Hook
   const { enterCompareMode, exitCompareMode } = useWindowCache();
 
@@ -219,7 +219,7 @@ function App() {
                         </div>
                         <button
                           onClick={() => setSelectedImage(null)}
-                          className="group-hover:opacity-100 opacity-0 transition-opacity duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium"
+                          className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
                           title="重新选择图片"
                         >
                           ✗
