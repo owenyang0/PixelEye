@@ -510,7 +510,7 @@ function App() {
             <span className="text-2xl mr-3">🕒</span>
             <h3 className="text-lg font-semibold text-gray-800">最近设计稿</h3>
           </div>
-          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thumb-gray-300 scrollbar-track-gray-100">
             {recentImages.map((image, index) => (
               <div
                 key={image.id}

@@ -17,25 +17,12 @@ html.compare-mode,
   background: transparent !important;
 }
 
-/* 自定义样式 */
 
-/* 最近设计稿滚动条样式 */
-.scrollbar-thin {
-  scrollbar-width: 4px;
+
+::-webkit-scrollbar {
+  display: none;
 }
 
-.scrollbar-thin::-webkit-scrollbar {
-  height: 4px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: #d1d5db;
-  border-radius: 3px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #9ca3af;
-}
 .drag-area {
   border: 2px dashed #d1d5db;
   transition: all 0.3s ease;
