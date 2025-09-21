@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import CompareWindow from './CompareWindow';
+import AboutDialog from './components/AboutDialog';
 import { useWindowCache } from './hooks/useWindowCache';
 import { storageService, STORAGE_KEYS } from './utils/StorageService';
 import { isTauriEnvironment } from './utils/environmentUtils';
@@ -55,6 +56,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [isCompareMode, setIsCompareMode] = useState(false);
   const [recentImages, setRecentImages] = useState<RecentImage[]>([]);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 使用窗口缓存 Hook
@@ -503,7 +505,7 @@ function App() {
   const renderRecentImages = () => {
     if (recentImages.length === 0) return null;
 
-    return (
+  return (
       <div className="mt-8 max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
           <div className="flex items-center mb-4">
@@ -544,7 +546,7 @@ function App() {
                   <p className="text-xs text-gray-200">
                     {index === 0 ? '刚刚使用' : `${Math.floor((Date.now() - image.lastUsed) / 60000)}分钟前`}
                   </p>
-                </div>
+      </div>
 
                 {/* 删除按钮 */}
                 <button
@@ -614,11 +616,17 @@ function App() {
         />
       )}
 
+      {/* About 对话框 */}
+      <AboutDialog 
+        isOpen={isAboutOpen} 
+        onClose={() => setIsAboutOpen(false)} 
+      />
+
       {/* 主页面 */}
       {!isCompareMode && (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
           {/* 隐藏的文件输入 */}
-          <input
+        <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileInputChange}
@@ -626,7 +634,20 @@ function App() {
             style={{ display: 'none' }}
           />
           <div className="max-w-5xl mx-auto">
-            <header className="mb-10 text-center">
+            <header className="mb-10 text-center relative">
+              {/* About 按钮 */}
+              <div className="absolute top-0 right-0">
+                <button
+                  onClick={() => setIsAboutOpen(true)}
+                  className="text-gray-500 hover:text-gray-700 transition-colors p-2"
+                  title="关于应用"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </button>
+              </div>
+
               <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mb-4 shadow-lg">
                 <span className="text-2xl">🎯</span>
               </div>

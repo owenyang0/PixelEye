@@ -3,8 +3,8 @@
 version = 4
 
 [[package]]
-name = "Pixels像素级对比工具"
-version = "0.1.0"
+name = "PixelEye设计之眼"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",

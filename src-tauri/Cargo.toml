@@ -1,7 +1,7 @@
 [package]
-name = "Pixels像素级对比工具"
-version = "0.1.0"
-description = "Pixels! 专业的像素级设计稿对比工具，支持透明覆盖、实时调节，让设计还原更精确"
+name = "PixelEye设计之眼"
+version = "0.1.1"
+description = "PixelEye! 设计之眼，洞见开发！专业的像素级设计稿对比工具，支持透明覆盖、实时调节，让设计还原更精确"
 authors = ["yangsong13"]
 edition = "2024"
 
