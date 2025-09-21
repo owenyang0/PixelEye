@@ -8,6 +8,7 @@ import { isTauriEnvironment } from './environmentUtils';
 export class StorageService {
   private store: LazyStore | null = null;
   private initialized = false;
+  private cache = new Map<string, any>(); // 添加内存缓存
 
   constructor() {
     if (isTauriEnvironment) {
@@ -30,20 +31,33 @@ export class StorageService {
    * @returns 存储的值，如果不存在则返回null
    */
   async get<T>(key: string): Promise<T | null> {
+    // 先检查缓存
+    if (this.cache.has(key)) {
+      return this.cache.get(key) as T;
+    }
+
     if (isTauriEnvironment && !this.initialized) {
       await this.initTauriStore();
     }
 
     try {
+      let value: T | null = null;
+      
       if (isTauriEnvironment && this.store) {
         // 使用Tauri Store
-        const value = await this.store.get(key);
-        return value as T || null;
+        value = await this.store.get(key) as T || null;
       } else {
         // 使用localStorage
-        const value = localStorage.getItem(key);
-        return value ? JSON.parse(value) : null;
+        const storedValue = localStorage.getItem(key);
+        value = storedValue ? JSON.parse(storedValue) : null;
       }
+      
+      // 缓存结果
+      if (value !== null) {
+        this.cache.set(key, value);
+      }
+      
+      return value;
     } catch (error) {
       console.error(`获取${key}失败:`, error);
       return null;
@@ -56,6 +70,9 @@ export class StorageService {
    * @param value 要存储的值
    */
   async set<T>(key: string, value: T): Promise<void> {
+    // 先更新缓存
+    this.cache.set(key, value);
+    
     if (isTauriEnvironment && !this.initialized) {
       await this.initTauriStore();
     }
@@ -71,6 +88,8 @@ export class StorageService {
       }
     } catch (error) {
       console.error(`保存${key}失败:`, error);
+      // 如果保存失败，从缓存中移除
+      this.cache.delete(key);
     }
   }
 
@@ -79,6 +98,9 @@ export class StorageService {
    * @param key 键名
    */
   async remove(key: string): Promise<void> {
+    // 先从缓存中移除
+    this.cache.delete(key);
+    
     if (isTauriEnvironment && !this.initialized) {
       await this.initTauriStore();
     }

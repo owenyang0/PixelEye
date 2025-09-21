@@ -58,22 +58,32 @@ function App() {
   const [recentImages, setRecentImages] = useState<RecentImage[]>([]);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const createdUrlsRef = useRef<Set<string>>(new Set()); // 跟踪创建的URL
+  const isStoringRef = useRef(false); // 防止重复存储
 
   // 使用窗口缓存 Hook
   const { enterCompareMode, exitCompareMode } = useWindowCache();
 
   // 创建图片数据对象
-  const createImageData = (name: string, fileData: Uint8Array, path?: string): ImageData => {
+  const createImageData = (name: string, fileData: Uint8Array): ImageData => {
     const blob = new Blob([fileData]);
     const url = URL.createObjectURL(blob);
+    createdUrlsRef.current.add(url); // 跟踪URL
 
     return {
       name,
       url,
-      file: fileData,
-      path
+      file: fileData
     };
   };
+
+  // 清理URL资源
+  const cleanupUrls = useCallback(() => {
+    createdUrlsRef.current.forEach(url => {
+      URL.revokeObjectURL(url);
+    });
+    createdUrlsRef.current.clear();
+  }, []);
 
   // 生成图片唯一ID（基于文件名和大小）
   const generateImageId = (name: string, fileData: Uint8Array): string => {
@@ -152,16 +162,21 @@ function App() {
         const imagesData = await storageService.get<any[]>('pixels_recent_images');
         if (!imagesData) return [];
 
-        const images = await Promise.all(
-          imagesData.map(async (data) => ({
+        const images = imagesData.map((data) => {
+          const fileData = new Uint8Array(data.file);
+          const blob = new Blob([fileData]);
+          const url = URL.createObjectURL(blob);
+          createdUrlsRef.current.add(url); // 跟踪URL
+
+          return {
             id: data.id,
             name: data.name,
-            file: new Uint8Array(data.file),
+            file: fileData,
             path: data.path,
             lastUsed: data.lastUsed,
-            url: URL.createObjectURL(new Blob([new Uint8Array(data.file)]))
-          }))
-        );
+            url
+          };
+        });
         return images;
       } else {
         // Web 环境
@@ -169,16 +184,21 @@ function App() {
         if (!imagesDataStr) return [];
 
         const imagesData = JSON.parse(imagesDataStr);
-        const images = await Promise.all(
-          imagesData.map(async (data: any) => ({
+        const images = imagesData.map((data: any) => {
+          const fileData = base64ToUint8Array(data.data);
+          const blob = new Blob([fileData]);
+          const url = URL.createObjectURL(blob);
+          createdUrlsRef.current.add(url); // 跟踪URL
+
+          return {
             id: data.id,
             name: data.name,
-            file: base64ToUint8Array(data.data),
+            file: fileData,
             path: data.path,
             lastUsed: data.lastUsed,
-            url: URL.createObjectURL(new Blob([base64ToUint8Array(data.data)]))
-          }))
-        );
+            url
+          };
+        });
         return images;
       }
     } catch (error) {
@@ -189,33 +209,56 @@ function App() {
 
   // 保存当前选择的图片（支持 Tauri 和 Web 环境）
   const saveSelectedImage = useCallback(async (image: ImageData | null) => {
+    // 立即更新UI状态
     setSelectedImage(image);
 
     if (image) {
-      // 添加到最近使用列表
-      addToRecentImages(image);
+      // 异步添加到最近使用列表，不阻塞UI
+      setTimeout(() => {
+        addToRecentImages(image);
+      }, 0);
 
-      if (isTauriEnvironment) {
-        // Tauri 环境：使用 storageService 缓存二进制数据
-        await storageService.set(STORAGE_KEYS.LAST_IMAGE, {
-          name: image.name,
-          file: Array.from(image.file)
-        });
-      } else {
-        // Web 环境：使用 localStorage 缓存 base64 数据
-        const base64 = await uint8ArrayToBase64(image.file);
-        localStorage.setItem('pixels_last_image', JSON.stringify({
-          name: image.name,
-          data: base64
-        }));
+      // 防止重复存储操作
+      if (!isStoringRef.current) {
+        isStoringRef.current = true;
+
+        // 异步保存到存储，不阻塞UI
+        setTimeout(async () => {
+          try {
+            if (isTauriEnvironment) {
+              // Tauri 环境：使用 storageService 缓存二进制数据
+              await storageService.set(STORAGE_KEYS.LAST_IMAGE, {
+                name: image.name,
+                file: Array.from(image.file)
+              });
+            } else {
+              // Web 环境：使用 localStorage 缓存 base64 数据
+              const base64 = await uint8ArrayToBase64(image.file);
+              localStorage.setItem('pixels_last_image', JSON.stringify({
+                name: image.name,
+                data: base64
+              }));
+            }
+          } catch (error) {
+            console.error('保存图片到存储失败:', error);
+          } finally {
+            isStoringRef.current = false;
+          }
+        }, 0);
       }
     } else {
       // 清除缓存
-      if (isTauriEnvironment) {
-        await storageService.remove(STORAGE_KEYS.LAST_IMAGE);
-      } else {
-        localStorage.removeItem('pixels_last_image');
-      }
+      setTimeout(async () => {
+        try {
+          if (isTauriEnvironment) {
+            await storageService.remove(STORAGE_KEYS.LAST_IMAGE);
+          } else {
+            localStorage.removeItem('pixels_last_image');
+          }
+        } catch (error) {
+          console.error('清除图片存储失败:', error);
+        }
+      }, 0);
     }
   }, [addToRecentImages]);
 
@@ -254,6 +297,13 @@ function App() {
     };
     loadData();
   }, [loadLastImage, loadRecentImagesFromStorage]);
+
+  // 组件卸载时清理URL资源
+  useEffect(() => {
+    return () => {
+      cleanupUrls();
+    };
+  }, [cleanupUrls]);
 
   // 监听 Tauri v2 文件拖拽事件
   useEffect(() => {
@@ -402,6 +452,10 @@ function App() {
       const success = await enterCompareMode();
       if (success) {
         setIsCompareMode(true);
+        if (!success) {
+          // 如果窗口操作失败，回退到主页面
+          setIsCompareMode(false);
+        }
       }
     }
   }, [selectedImage, enterCompareMode]);
@@ -414,8 +468,14 @@ function App() {
 
   // 快速切换图片
   const handleQuickSwitch = useCallback(async (recentImage: RecentImage) => {
-    await saveSelectedImage(recentImage);
-  }, [saveSelectedImage]);
+    // 直接设置图片，立即生效
+    setSelectedImage(recentImage);
+
+    // 异步更新最近使用时间，不阻塞UI
+    setTimeout(() => {
+      addToRecentImages(recentImage);
+    }, 0);
+  }, [addToRecentImages]);
 
   // 删除最近图片
   const handleRemoveRecentImage = useCallback((imageId: string) => {
@@ -505,7 +565,7 @@ function App() {
   const renderRecentImages = () => {
     if (recentImages.length === 0) return null;
 
-  return (
+    return (
       <div className="mt-8 max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
           <div className="flex items-center mb-4">
@@ -546,7 +606,7 @@ function App() {
                   <p className="text-xs text-gray-200">
                     {index === 0 ? '刚刚使用' : `${Math.floor((Date.now() - image.lastUsed) / 60000)}分钟前`}
                   </p>
-      </div>
+                </div>
 
                 {/* 删除按钮 */}
                 <button
@@ -617,16 +677,16 @@ function App() {
       )}
 
       {/* About 对话框 */}
-      <AboutDialog 
-        isOpen={isAboutOpen} 
-        onClose={() => setIsAboutOpen(false)} 
+      <AboutDialog
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
       />
 
       {/* 主页面 */}
       {!isCompareMode && (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
           {/* 隐藏的文件输入 */}
-        <input
+          <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileInputChange}
