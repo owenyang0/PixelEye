@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { storageService, STORAGE_KEYS } from '../utils/StorageService';
+import { isTauriEnvironment } from '../utils/environmentUtils';
 
 interface WindowSize {
   width: number;
@@ -57,6 +58,8 @@ export const useWindowCache = () => {
   // 进入对比模式
   const enterCompareMode = useCallback(async () => {
     try {
+      if (!isTauriEnvironment) return true;
+
       // 保存当前主窗口状态
       const [currentWidth, currentHeight] = await invoke('get_window_size') as [number, number];
       const [currentX, currentY] = await invoke('get_window_position') as [number, number];
@@ -98,6 +101,8 @@ export const useWindowCache = () => {
   // 退出对比模式
   const exitCompareMode = useCallback(async () => {
     try {
+      if (!isTauriEnvironment) return;
+
       // 保存当前对比窗口状态
       const [currentWidth, currentHeight] = await invoke('get_window_size') as [number, number];
       const [currentX, currentY] = await invoke('get_window_position') as [number, number];

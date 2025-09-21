@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { readFile, exists } from '@tauri-apps/plugin-fs';
+import { readFile } from '@tauri-apps/plugin-fs';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import CompareWindow from './CompareWindow';
 import { useWindowCache } from './hooks/useWindowCache';
@@ -19,6 +19,31 @@ interface ImageData {
 const SUPPORTED_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'];
 const IMAGE_REGEX = /\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i;
 
+// Base64 转换辅助函数
+const uint8ArrayToBase64 = async (uint8Array: Uint8Array): Promise<string> => {
+  const blob = new Blob([uint8Array]);
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // 移除 data:image/...;base64, 前缀
+      const base64 = result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+const base64ToUint8Array = (base64: string): Uint8Array => {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+};
+
 function App() {
   const [selectedImage, setSelectedImage] = useState<ImageData | null>(null);
   const [opacity, setOpacity] = useState(0.7);
@@ -30,45 +55,68 @@ function App() {
   const { enterCompareMode, exitCompareMode } = useWindowCache();
 
   // 创建图片数据对象
-  const createImageData = (name: string, fileData: Uint8Array, path?: string): ImageData => {
+  const createImageData = (name: string, fileData: Uint8Array): ImageData => {
     const blob = new Blob([fileData]);
     const url = URL.createObjectURL(blob);
 
     return {
       name,
       url,
-      file: fileData,
-      path
+      file: fileData
+
     };
   };
 
-  // 保存当前选择的图片（仅在 Tauri 中缓存路径）
+  // 保存当前选择的图片（支持 Tauri 和 Web 环境）
   const saveSelectedImage = useCallback(async (image: ImageData | null) => {
     setSelectedImage(image);
 
-    if (!isTauriEnvironment) return;
-
-    if (image?.path) {
-      await storageService.set(STORAGE_KEYS.LAST_IMAGE_PATH, image.path);
+    if (image) {
+      if (isTauriEnvironment) {
+        // Tauri 环境：使用 storageService 缓存二进制数据
+        await storageService.set(STORAGE_KEYS.LAST_IMAGE, {
+          name: image.name,
+          file: Array.from(image.file)
+        });
+      } else {
+        // Web 环境：使用 localStorage 缓存 base64 数据
+        const base64 = await uint8ArrayToBase64(image.file);
+        localStorage.setItem('pixels_last_image', JSON.stringify({
+          name: image.name,
+          data: base64
+        }));
+      }
     } else {
-      await storageService.remove(STORAGE_KEYS.LAST_IMAGE_PATH);
+      // 清除缓存
+      if (isTauriEnvironment) {
+        await storageService.remove(STORAGE_KEYS.LAST_IMAGE);
+      } else {
+        localStorage.removeItem('pixels_last_image');
+      }
     }
   }, []);
 
-  // 加载上次使用的图片（仅通过路径）
+  // 加载上次使用的图片（支持 Tauri 和 Web 环境）
   const loadLastImage = useCallback(async () => {
-    if (!isTauriEnvironment) return;
-
     try {
-      const lastImagePath = await storageService.get<string>(STORAGE_KEYS.LAST_IMAGE_PATH);
-      if (!lastImagePath) return;
+      if (isTauriEnvironment) {
+        // Tauri 环境：从 storageService 加载二进制数据
+        const savedImage = await storageService.get<{name: string, file: number[]}>(STORAGE_KEYS.LAST_IMAGE);
+        if (!savedImage?.file) return;
 
-      const fileExists = await exists(lastImagePath);
-      if (!fileExists) return;
+        const fileData = new Uint8Array(savedImage.file);
+        setSelectedImage(createImageData(savedImage.name, fileData));
+      } else {
+        // Web 环境：从 localStorage 加载 base64 数据
+        const savedImageStr = localStorage.getItem('pixels_last_image');
+        if (!savedImageStr) return;
 
-      const fileData = await readFile(lastImagePath);
-      const fileName = lastImagePath.split('/').pop() || 'unknown';
-      setSelectedImage(createImageData(fileName, fileData, lastImagePath));
+        const savedImage = JSON.parse(savedImageStr);
+        if (!savedImage?.data) return;
+
+        const fileData = base64ToUint8Array(savedImage.data);
+        setSelectedImage(createImageData(savedImage.name, fileData));
+      }
     } catch (error) {
       console.error('加载上次使用的图片失败:', error);
     }
@@ -135,7 +183,7 @@ function App() {
       const fileData = await readFile(filePath);
       const fileName = filePath.split('/').pop() || 'unknown';
       
-      await saveSelectedImage(createImageData(fileName, fileData, filePath));
+      await saveSelectedImage(createImageData(fileName, fileData));
       setIsDragging(false);
     } catch (error) {
       console.error('处理 Tauri 文件拖拽失败:', error);
@@ -162,7 +210,7 @@ function App() {
         if (file) {
           const fileData = await readFile(file);
           const fileName = file.split('/').pop() || 'unknown';
-          await saveSelectedImage(createImageData(fileName, fileData, file));
+          await saveSelectedImage(createImageData(fileName, fileData));
         }
       } else {
         // 备选方案：使用HTML文件输入
