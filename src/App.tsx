@@ -60,6 +60,8 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createdUrlsRef = useRef<Set<string>>(new Set()); // 跟踪创建的URL
   const isStoringRef = useRef(false); // 防止重复存储
+  const isStoringRecentRef = useRef(false); // 防止重复存储最近图片
+  const saveRecentTimeoutRef = useRef<NodeJS.Timeout | null>(null); // 防抖定时器
 
   // 使用窗口缓存 Hook
   const { enterCompareMode, exitCompareMode } = useWindowCache();
@@ -110,8 +112,13 @@ function App() {
       // 保持最多10个最近图片
       const updated = [newRecent, ...filtered].slice(0, 10);
 
-      // 保存到本地存储
-      saveRecentImagesToStorage(updated);
+      // 防抖保存到本地存储，避免频繁操作
+      if (saveRecentTimeoutRef.current) {
+        clearTimeout(saveRecentTimeoutRef.current);
+      }
+      saveRecentTimeoutRef.current = setTimeout(() => {
+        saveRecentImagesToStorage(updated);
+      }, 300); // 300ms 防抖
 
       return updated;
     });
@@ -119,8 +126,13 @@ function App() {
 
   // 保存最近图片到本地存储
   const saveRecentImagesToStorage = useCallback(async (images: RecentImage[]) => {
-    if (isTauriEnvironment) {
-      try {
+    // 防止重复存储操作
+    if (isStoringRecentRef.current) return;
+    
+    isStoringRecentRef.current = true;
+    
+    try {
+      if (isTauriEnvironment) {
         // Tauri 环境：使用 storageService
         const imagesData = await Promise.all(
           images.map(async (img) => ({
@@ -132,12 +144,8 @@ function App() {
           }))
         );
         await storageService.set('pixels_recent_images', imagesData);
-      } catch (error) {
-        console.error('保存最近图片失败:', error);
-      }
-    } else {
-      // Web 环境：使用 localStorage
-      try {
+      } else {
+        // Web 环境：使用 localStorage
         const imagesData = await Promise.all(
           images.map(async (img) => ({
             id: img.id,
@@ -148,9 +156,11 @@ function App() {
           }))
         );
         localStorage.setItem('pixels_recent_images', JSON.stringify(imagesData));
-      } catch (error) {
-        console.error('保存最近图片失败:', error);
       }
+    } catch (error) {
+      console.error('保存最近图片失败:', error);
+    } finally {
+      isStoringRecentRef.current = false;
     }
   }, []);
 
@@ -471,11 +481,18 @@ function App() {
     // 直接设置图片，立即生效
     setSelectedImage(recentImage);
 
-    // 异步更新最近使用时间，不阻塞UI
-    setTimeout(() => {
-      addToRecentImages(recentImage);
-    }, 0);
-  }, [addToRecentImages]);
+    // 只更新最近使用时间，不触发存储操作
+    setRecentImages(prev => {
+      const imageId = generateImageId(recentImage.name, recentImage.file);
+      const now = Date.now();
+      
+      return prev.map(img => 
+        img.id === imageId 
+          ? { ...img, lastUsed: now }
+          : img
+      );
+    });
+  }, []);
 
   // 删除最近图片
   const handleRemoveRecentImage = useCallback((imageId: string) => {
@@ -519,7 +536,7 @@ function App() {
     <div className="space-y-6">
       {/* 图片显示 */}
       <div className="group relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="flex items-center justify-center max-h-80">
+        <div className="flex items-center justify-center max-h-72">
           <img
             src={selectedImage!.url}
             alt={selectedImage!.name}
@@ -553,9 +570,9 @@ function App() {
               进入对比模式
             </span>
           </button>
-          <p className="text-xs text-gray-500 text-center">
+          {/* <p className="text-xs text-gray-500 text-center">
             将以透明窗口覆盖进行像素级对比
-          </p>
+          </p> */}
         </div>
       </div>
     </div>
@@ -565,7 +582,7 @@ function App() {
   const renderRecentImages = () => {
     if (recentImages.length === 0) return null;
 
-    return (
+  return (
       <div className="mt-8 max-w-4xl mx-auto">
         <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
           <div className="flex items-center mb-4">
@@ -606,7 +623,7 @@ function App() {
                   <p className="text-xs text-gray-200">
                     {index === 0 ? '刚刚使用' : `${Math.floor((Date.now() - image.lastUsed) / 60000)}分钟前`}
                   </p>
-                </div>
+      </div>
 
                 {/* 删除按钮 */}
                 <button
@@ -686,7 +703,7 @@ function App() {
       {!isCompareMode && (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-6">
           {/* 隐藏的文件输入 */}
-          <input
+        <input
             type="file"
             ref={fileInputRef}
             onChange={handleFileInputChange}
@@ -712,9 +729,9 @@ function App() {
                 <span className="text-2xl">🎯</span>
               </div>
               <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-3">
-                Pixels
+                PixelEye
               </h1>
-              <h2 className="text-xl font-semibold text-gray-700 mb-2">设计稿对比工具</h2>
+              <h2 className="text-xl font-semibold text-gray-700 mb-2">设计之眼，洞见开发</h2>
               <p className="text-gray-600 max-w-2xl mx-auto">
                 专业的像素级设计稿对比工具，支持透明覆盖、实时调节，让设计还原更精确
               </p>
