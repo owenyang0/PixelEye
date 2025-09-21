@@ -15,6 +15,11 @@ interface ImageData {
   path?: string; // 可选的文件路径
 }
 
+interface RecentImage extends ImageData {
+  id: string; // 唯一标识符
+  lastUsed: number; // 最后使用时间戳
+}
+
 // 支持的图片格式
 const SUPPORTED_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'];
 const IMAGE_REGEX = /\.(png|jpg|jpeg|gif|bmp|webp|svg)$/i;
@@ -49,29 +54,145 @@ function App() {
   const [opacity, setOpacity] = useState(0.7);
   const [isDragging, setIsDragging] = useState(false);
   const [isCompareMode, setIsCompareMode] = useState(false);
+  const [recentImages, setRecentImages] = useState<RecentImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 使用窗口缓存 Hook
   const { enterCompareMode, exitCompareMode } = useWindowCache();
 
   // 创建图片数据对象
-  const createImageData = (name: string, fileData: Uint8Array): ImageData => {
+  const createImageData = (name: string, fileData: Uint8Array, path?: string): ImageData => {
     const blob = new Blob([fileData]);
     const url = URL.createObjectURL(blob);
 
     return {
       name,
       url,
-      file: fileData
-
+      file: fileData,
+      path
     };
   };
+
+  // 生成图片唯一ID（基于文件名和大小）
+  const generateImageId = (name: string, fileData: Uint8Array): string => {
+    const size = fileData.length;
+    return `${name}_${size}`;
+  };
+
+  // 添加到最近使用列表
+  const addToRecentImages = useCallback((image: ImageData) => {
+    const imageId = generateImageId(image.name, image.file);
+    const now = Date.now();
+
+    setRecentImages(prev => {
+      // 移除已存在的相同图片（如果存在）
+      const filtered = prev.filter(img => img.id !== imageId);
+
+      // 添加新图片到最前面
+      const newRecent: RecentImage = {
+        ...image,
+        id: imageId,
+        lastUsed: now
+      };
+
+      // 保持最多10个最近图片
+      const updated = [newRecent, ...filtered].slice(0, 10);
+
+      // 保存到本地存储
+      saveRecentImagesToStorage(updated);
+
+      return updated;
+    });
+  }, []);
+
+  // 保存最近图片到本地存储
+  const saveRecentImagesToStorage = useCallback(async (images: RecentImage[]) => {
+    if (isTauriEnvironment) {
+      try {
+        // Tauri 环境：使用 storageService
+        const imagesData = await Promise.all(
+          images.map(async (img) => ({
+            id: img.id,
+            name: img.name,
+            file: Array.from(img.file),
+            path: img.path,
+            lastUsed: img.lastUsed
+          }))
+        );
+        await storageService.set('pixels_recent_images', imagesData);
+      } catch (error) {
+        console.error('保存最近图片失败:', error);
+      }
+    } else {
+      // Web 环境：使用 localStorage
+      try {
+        const imagesData = await Promise.all(
+          images.map(async (img) => ({
+            id: img.id,
+            name: img.name,
+            data: await uint8ArrayToBase64(img.file),
+            path: img.path,
+            lastUsed: img.lastUsed
+          }))
+        );
+        localStorage.setItem('pixels_recent_images', JSON.stringify(imagesData));
+      } catch (error) {
+        console.error('保存最近图片失败:', error);
+      }
+    }
+  }, []);
+
+  // 从本地存储加载最近图片
+  const loadRecentImagesFromStorage = useCallback(async () => {
+    try {
+      if (isTauriEnvironment) {
+        // Tauri 环境
+        const imagesData = await storageService.get<any[]>('pixels_recent_images');
+        if (!imagesData) return [];
+
+        const images = await Promise.all(
+          imagesData.map(async (data) => ({
+            id: data.id,
+            name: data.name,
+            file: new Uint8Array(data.file),
+            path: data.path,
+            lastUsed: data.lastUsed,
+            url: URL.createObjectURL(new Blob([new Uint8Array(data.file)]))
+          }))
+        );
+        return images;
+      } else {
+        // Web 环境
+        const imagesDataStr = localStorage.getItem('pixels_recent_images');
+        if (!imagesDataStr) return [];
+
+        const imagesData = JSON.parse(imagesDataStr);
+        const images = await Promise.all(
+          imagesData.map(async (data: any) => ({
+            id: data.id,
+            name: data.name,
+            file: base64ToUint8Array(data.data),
+            path: data.path,
+            lastUsed: data.lastUsed,
+            url: URL.createObjectURL(new Blob([base64ToUint8Array(data.data)]))
+          }))
+        );
+        return images;
+      }
+    } catch (error) {
+      console.error('加载最近图片失败:', error);
+      return [];
+    }
+  }, []);
 
   // 保存当前选择的图片（支持 Tauri 和 Web 环境）
   const saveSelectedImage = useCallback(async (image: ImageData | null) => {
     setSelectedImage(image);
 
     if (image) {
+      // 添加到最近使用列表
+      addToRecentImages(image);
+
       if (isTauriEnvironment) {
         // Tauri 环境：使用 storageService 缓存二进制数据
         await storageService.set(STORAGE_KEYS.LAST_IMAGE, {
@@ -94,14 +215,14 @@ function App() {
         localStorage.removeItem('pixels_last_image');
       }
     }
-  }, []);
+  }, [addToRecentImages]);
 
   // 加载上次使用的图片（支持 Tauri 和 Web 环境）
   const loadLastImage = useCallback(async () => {
     try {
       if (isTauriEnvironment) {
         // Tauri 环境：从 storageService 加载二进制数据
-        const savedImage = await storageService.get<{name: string, file: number[]}>(STORAGE_KEYS.LAST_IMAGE);
+        const savedImage = await storageService.get<{ name: string, file: number[] }>(STORAGE_KEYS.LAST_IMAGE);
         if (!savedImage?.file) return;
 
         const fileData = new Uint8Array(savedImage.file);
@@ -122,10 +243,15 @@ function App() {
     }
   }, []);
 
-  // 应用启动时加载上次使用的图片
+  // 应用启动时加载上次使用的图片和最近图片
   useEffect(() => {
-    loadLastImage();
-  }, [loadLastImage]);
+    const loadData = async () => {
+      await loadLastImage();
+      const recent = await loadRecentImagesFromStorage();
+      setRecentImages(recent);
+    };
+    loadData();
+  }, [loadLastImage, loadRecentImagesFromStorage]);
 
   // 监听 Tauri v2 文件拖拽事件
   useEffect(() => {
@@ -135,30 +261,30 @@ function App() {
       const setupDragDropListener = async () => {
         try {
           const webview = getCurrentWebview();
-          
+
           // 监听拖拽事件
           unlisten = await webview.onDragDropEvent((event) => {
             const dragData = event.payload;
-            
+
             switch (dragData.type) {
               case 'enter':
               case 'over':
                 setIsDragging(true);
                 break;
-                
+
               case 'drop':
                 setIsDragging(false);
-                
+
                 const paths = (dragData as any).paths;
                 if (paths && paths.length > 0) {
                   const imageFile = paths.find((file: string) => IMAGE_REGEX.test(file));
-                  
+
                   if (imageFile) {
                     handleTauriFileDrop(imageFile);
                   }
                 }
                 break;
-                
+
               case 'leave':
                 setIsDragging(false);
                 break;
@@ -182,7 +308,7 @@ function App() {
     try {
       const fileData = await readFile(filePath);
       const fileName = filePath.split('/').pop() || 'unknown';
-      
+
       await saveSelectedImage(createImageData(fileName, fileData));
       setIsDragging(false);
     } catch (error) {
@@ -253,8 +379,8 @@ function App() {
         ? Array.from(e.dataTransfer.files)
         : e.dataTransfer.items && e.dataTransfer.items.length > 0
           ? Array.from(e.dataTransfer.items)
-              .filter((item) => item.kind === 'file')
-              .map((item) => item.getAsFile()!)
+            .filter((item) => item.kind === 'file')
+            .map((item) => item.getAsFile()!)
           : [];
 
       const imageFile = files.find((f): f is File => !!f && 'type' in f && f.type.startsWith('image/'));
@@ -284,14 +410,27 @@ function App() {
     setIsCompareMode(false);
   }, [exitCompareMode]);
 
+  // 快速切换图片
+  const handleQuickSwitch = useCallback(async (recentImage: RecentImage) => {
+    await saveSelectedImage(recentImage);
+  }, [saveSelectedImage]);
+
+  // 删除最近图片
+  const handleRemoveRecentImage = useCallback((imageId: string) => {
+    setRecentImages(prev => {
+      const updated = prev.filter(img => img.id !== imageId);
+      saveRecentImagesToStorage(updated);
+      return updated;
+    });
+  }, [saveRecentImagesToStorage]);
+
   // 渲染文件选择区域
   const renderFileSelector = () => (
     <div
-      className={`relative rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 border-2 border-dashed ${
-        isDragging
-          ? 'border-blue-400 bg-blue-50 scale-105'
-          : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
-      }`}
+      className={`relative rounded-2xl p-12 text-center cursor-pointer transition-all duration-300 border-2 border-dashed ${isDragging
+        ? 'border-blue-400 bg-blue-50 scale-105'
+        : 'border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+        }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -328,12 +467,12 @@ function App() {
         </div>
 
         {/* 透明度指示器 */}
-        <div title="透明度" className="absolute top-4 left-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium">
+        <div title="透明度" className="absolute top-4 left-4 bg-black/80 text-white px-3 py-1 rounded-full text-sm font-medium">
           {Math.round(opacity * 100)}%
         </div>
         <button
           onClick={() => saveSelectedImage(null)}
-          className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black bg-opacity-60 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
+          className="group-hover:opacity-100 opacity-0 duration-300 absolute top-4 right-4 bg-black/80 text-white px-3 py-1 rounded-full text-sm font-medium hover:text-red-400 transition-all"
           title="重新选择图片"
         >
           ✗
@@ -359,6 +498,72 @@ function App() {
       </div>
     </div>
   );
+
+  // 渲染最近设计稿
+  const renderRecentImages = () => {
+    if (recentImages.length === 0) return null;
+
+    return (
+      <div className="mt-8 max-w-4xl mx-auto">
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+          <div className="flex items-center mb-4">
+            <span className="text-2xl mr-3">🕒</span>
+            <h3 className="text-lg font-semibold text-gray-800">最近设计稿</h3>
+          </div>
+          <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
+            {recentImages.map((image, index) => (
+              <div
+                key={image.id}
+                className="group relative bg-gray-50 rounded-lg overflow-hidden cursor-pointer hover:shadow-md transition-all duration-200 flex-shrink-0"
+                style={{ width: '120px', height: '100px' }}
+                onClick={() => handleQuickSwitch(image)}
+              >
+                {/* 背景图片 */}
+                <div
+                  className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+                  style={{
+                    backgroundImage: `url(${image.url})`,
+                    filter: 'brightness(0.9)'
+                  }}
+                />
+
+                {/* 悬停遮罩层 */}
+                <div className="absolute inset-0 bg-transparent group-hover:bg-black/40 transition-all duration-200 flex items-center justify-center">
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <button className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-xs font-medium px-3 py-1 rounded-full shadow-lg">
+                      选择
+                    </button>
+                  </div>
+                </div>
+
+                {/* 图片信息 - 固定在底部 */}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                  <p className="text-xs text-white truncate font-medium" title={image.name}>
+                    {image.name}
+                  </p>
+                  <p className="text-xs text-gray-200">
+                    {index === 0 ? '刚刚使用' : `${Math.floor((Date.now() - image.lastUsed) / 60000)}分钟前`}
+                  </p>
+                </div>
+
+                {/* 删除按钮 */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveRecentImage(image.id);
+                  }}
+                  className="absolute top-1 right-1 bg-black/80 text-white px-2 py-1 rounded-full text-xs font-medium hover:text-red-400 transition-all opacity-0 group-hover:opacity-100 duration-300"
+                  title="删除"
+                >
+                  ✗
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // 渲染使用说明
   const renderInstructions = () => (
@@ -449,6 +654,7 @@ function App() {
               </div>
             </div>
 
+            {renderRecentImages()}
             {renderInstructions()}
           </div>
         </div>
