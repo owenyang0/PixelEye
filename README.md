@@ -5,12 +5,12 @@
 ## 📸 功能概览
 
 <div align="center">
-  <img src="https://s3.owenyang.top/img/25/68d0c59fa6a6d.png" alt="PixelEye 主界面" width="80%"/>
-  <img src="https://s3.owenyang.top/img/25/68d0c59fee3f4.png" alt="PixelEye 对比模式" width="80%"/>
+  <img src="./public/screenshots/pixeleye1.png" alt="PixelEye 主界面" width="80%"/>
+  <img src="./public/screenshots/pixeleye2.png" alt="PixelEye 对比模式" width="80%"/>
   <p><em>主界面 - 现代化设计，直观易用</em></p>
 </div>
 <div align="center">
-  <img src="https://s3.owenyang.top/img/25/68d0c59b2c0fe.png" alt="PixelEye 透明度调节" width="80%"/>
+  <img src="./public/screenshots/pixeleye3.png" alt="PixelEye 透明度调节" width="80%"/>
   <p><em>对比模式、透明度调节 - 实时控制，细节可见</em></p>
 </div>
 
@@ -18,20 +18,14 @@
 
 ### 🎯 像素级精确对比
 - **透明覆盖模式**：将设计稿以透明窗口形式覆盖在实际页面上
-- **实时透明度调节**：支持 0-100% 透明度实时调节，精确对比细节
+- **实时透明度调节**：支持 0-100% 快捷键透明度实时调节，精确对比细节
 - **窗口状态记忆**：自动保存窗口大小和位置，提升使用体验
 
 ### 📁 智能文件管理
-- **多格式支持**：支持 PNG、JPG、JPEG、GIF、BMP、WebP、SVG 等主流图片格式
+- **多格式支持**：支持 PNG、JPG、JPEG 等主流图片格式
 - **拖拽上传**：支持直接拖拽图片文件到应用窗口
 - **最近使用**：智能记录最近使用的图片，快速切换对比
 - **文件缓存**：自动缓存图片数据，提升加载速度
-
-### 🎨 优雅的用户体验
-- **现代化界面**：采用渐变设计和毛玻璃效果
-- **响应式布局**：适配不同屏幕尺寸
-- **直观操作**：简洁明了的操作流程
-- **状态反馈**：清晰的操作状态提示
 
 ## 🛠️ 技术栈
 
@@ -77,8 +71,6 @@ pnpm tauri build:all
 
 ### 2. 进入对比模式
 - 点击"进入对比模式"按钮
-- 应用窗口将变为透明覆盖模式
-- 可以调节透明度进行精确对比
 
 ### 3. 调节透明度
 - 使用滑块实时调节透明度（0-100%）
@@ -88,7 +80,6 @@ pnpm tauri build:all
 ### 4. 退出对比模式
 - 点击"退出对比模式"按钮
 - 窗口恢复原始大小和位置
-- 返回主界面继续操作
 
 
 ## 🤝 贡献指南
