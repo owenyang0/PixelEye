@@ -1,6 +1,18 @@
 # PixelEye - 设计之眼，洞见开发
 
-> 专业的像素级设计稿对比工具，支持透明覆盖、颜色反转、实时调节，让设计还原更精确
+> 专业的像素级设计稿对比工具，支持透明覆盖、颜色反转、实时调节，让设计还原更精确，让开发更高效！ 🎨✨
+
+## 📸 功能概览
+
+<div align="center">
+  <img src="https://s3.owenyang.top/img/25/68d0c59fa6a6d.png" alt="PixelEye 主界面" width="80%"/>
+  <img src="https://s3.owenyang.top/img/25/68d0c59fee3f4.png" alt="PixelEye 对比模式" width="80%"/>
+  <p><em>主界面 - 现代化设计，直观易用</em></p>
+</div>
+<div align="center">
+  <img src="https://s3.owenyang.top/img/25/68d0c59b2c0fe.png" alt="PixelEye 透明度调节" width="80%"/>
+  <p><em>对比模式、透明度调节 - 实时控制，细节可见</em></p>
+</div>
 
 ## ✨ 主要功能
 
@@ -93,9 +105,6 @@ pnpm tauri build:all
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
 
-## 🙏 致谢
-
-感谢所有为这个项目做出贡献的开发者们！
 
 ---
 
